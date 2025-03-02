@@ -25,13 +25,15 @@ document_client = documentai.DocumentProcessorServiceClient(credentials=credenti
 openai.api_key = st.secrets["openai"]["api_key"]
 
 # ------------------------ 2️⃣ Helper Functions ------------------------
+
 def extract_text_from_pdf(pdf_path):
-    """Converts PDF pages to images and extracts text using OCR."""
-    images = pdf2image.convert_from_path(pdf_path)
+    """Extract text from PDF using PyMuPDF."""
+    import fitz  # PyMuPDF
+    doc = fitz.open(pdf_path)
     extracted_text = ""
-    for img in images:
-        text = pytesseract.image_to_string(img)
-        extracted_text += text + "\n"
+    for page_num in range(doc.page_count):
+        page = doc.load_page(page_num)
+        extracted_text += page.get_text() + "\n"
     return extracted_text.strip()
 
 def encode_image(image_path):
@@ -42,7 +44,11 @@ def encode_image(image_path):
 def analyze_kyc_document(file_path, file_type):
     """Extracts KYC details using Google Cloud Document AI."""
     if file_type == "pdf":
-        extracted_text = extract_text_from_pdf(file_path)
+        # Use Google Cloud Document AI directly for PDF extraction
+        with open(file_path, "rb") as file:
+            document = documentai.Document.from_file(file)
+            response = document_client.process_document(document)
+            extracted_text = response.document.text
     else:
         base64_img = encode_image(file_path)
         document = {
