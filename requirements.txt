@@ -1,5 +1,13 @@
 streamlit
 openai
+google-cloud-documentai
+pytesseract
+pillow
+pdf2image
+numpy
 pandas
-pymupdf # For PDFs (PyMuPDF)
-pillow  # Image processing
+matplotlib
+fitz
+PyMuPDF
+re
+base64
