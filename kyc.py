@@ -2,78 +2,73 @@ import streamlit as st
 import openai
 import os
 import base64
+import fitz  # ✅ PyMuPDF for PDF text extraction
 from PIL import Image
 import tempfile
 import pandas as pd
 import re  # ✅ For extracting fraud/AML percentages
 from google.cloud import documentai
 from google.oauth2 import service_account
-import json  # Import the json module
 
-# ------------------------ 1️⃣ Load API Keys ------------------------
-# Streamlit Page Configuration
-st.set_page_config(page_title="KYC AI Fraud & AML Risk Detection", layout="wide")
-
-# Initialize Google Cloud Document AI Client
-try:
-    # Attempt to load credentials from Streamlit secrets
-    gcp_credentials = st.secrets["gcp"]["credentials"]
-
-    # Check if credentials are a string (if so, parse as JSON)
-    if isinstance(gcp_credentials, str):
-        gcp_credentials = json.loads(gcp_credentials)
-
-    credentials = service_account.Credentials.from_service_account_info(gcp_credentials)
-    document_client = documentai.DocumentProcessorServiceClient(credentials=credentials)
-    processor_id = st.secrets["gcp"]["processor_id"]  # Load processor ID from secrets
-except KeyError as e:
-    st.error(f"Missing secret key: {e}. Check your secrets.toml file.")
+# Load OpenAI API Key from environment variables
+api_key = os.getenv("OPENAI_API_KEY")
+if not api_key:
+    st.error("API key not found. Please set it using `export OPENAI_API_KEY='your_api_key_here'` and restart.")
     st.stop()
 
-# ✅ Initialize OpenAI API
-openai.api_key = st.secrets["openai"]["api_key"]
+# Load Google Cloud Credentials
+gcp_credentials_path = os.getenv("GOOGLE_APPLICATION_CREDENTIALS")
+if not gcp_credentials_path:
+    st.error("Google credentials not found. Set GOOGLE_APPLICATION_CREDENTIALS.")
+    st.stop()
 
-# ✅ Function to extract text using Google Document AI
-def extract_text_google(file_path, mime_type, processor_name):
-    """Extracts text from a document using Google Cloud Document AI."""
-    try:
-        with open(file_path, "rb") as image_file:
-            image_content = image_file.read()
+credentials = service_account.Credentials.from_service_account_file(gcp_credentials_path)
+client_google = documentai.DocumentProcessorServiceClient(credentials=credentials)
 
-        raw_document = documentai.RawDocument(content=image_content, mime_type=mime_type)
-        request = documentai.ProcessRequest(
-            name=processor_name,  # Use the processor_name parameter
-            raw_document=raw_document
-        )
+# ✅ Initialize OpenAI client
+client_openai = openai.OpenAI(api_key=api_key)
 
-        response = document_client.process_document(request=request)
-        return response.document.text
-    except Exception as e:
-        st.error(f"Error extracting text with Google Document AI: {e}")
-        return ""
+# ✅ Google Document AI Processor ID & Project
+GCP_PROJECT_ID = os.getenv("GCP_PROJECT_ID")
+DOCUMENTAI_PROCESSOR_ID = os.getenv("DOCUMENTAI_PROCESSOR_ID")
+processor_name = f"projects/{GCP_PROJECT_ID}/locations/us/processors/{DOCUMENTAI_PROCESSOR_ID}"
+
+
+# Function to extract text using Google Document AI
+def extract_text_google(file_path, mime_type):
+    with open(file_path, "rb") as image_file:
+        image_content = image_file.read()
+
+    request = documentai.ProcessRequest(
+        name=processor_name,
+        raw_document=documentai.RawDocument(content=image_content, mime_type=mime_type),
+    )
+
+    response = client_google.process_document(request=request)
+    return response.document.text
+
 
 # ✅ Function to extract key KYC details automatically
 def extract_kyc_details(extracted_text):
-    try:
-        response = openai.chat.completions.create(  # Use openai.chat.completions
-            model="gpt-4o",
-            messages=[
-                {"role": "system",
-                 "content": "You are an AI specialized in KYC document verification. Extract structured details such as Name, Date of Birth, ID Type, ID Number, Address, Nationality, Issued Date, and Expiry Date."},
-                {"role": "user",
-                 "content": f"Extract key KYC details from the following document text:\n\n{extracted_text}"}
-            ],
-            temperature=0.1
-        )
-        return response.choices[0].message.content.strip()  # Access response correctly
-    except Exception as e:
-        st.error(f"Error during OpenAI KYC extraction: {e}")
-        return "Error occurred during KYC extraction."
+    response = client_openai.chat.completions.create(
+        model="gpt-4o",
+        messages=[
+            {"role": "system",
+             "content": "You are an AI specialized in KYC document verification. Extract structured details such as Name, Date of Birth, ID Type, ID Number, Address, Nationality, Issued Date, and Expiry Date."},
+            {"role": "user",
+             "content": f"Extract key KYC details from the following document text:\n\n{extracted_text}"}
+        ],
+        temperature=0.1
+    )
+
+    return response.choices[0].message.content.strip()
+
 
 # ✅ Function to extract percentage from GPT response
 def extract_percentage(text):
     match = re.search(r'(\d{1,3})%', text)
     return match.group(1) if match else "Unknown"
+
 
 # ✅ Function for fraud risk analysis
 def analyze_fraud_risk(kyc_text):
@@ -90,21 +85,18 @@ def analyze_fraud_risk(kyc_text):
     - Provide a short explanation of the risk assessment.
     """
 
-    try:
-        response = openai.chat.completions.create(  # Use openai.chat.completions
-            model="gpt-4o",
-            messages=[
-                {"role": "system",
-                 "content": "You are an AI fraud detection expert analyzing KYC documents for financial services."},
-                {"role": "user", "content": fraud_prompt}
-            ],
-            temperature=0.1
-        )
+    response = client_openai.chat.completions.create(
+        model="gpt-4o",
+        messages=[
+            {"role": "system",
+             "content": "You are an AI fraud detection expert analyzing KYC documents for financial services."},
+            {"role": "user", "content": fraud_prompt}
+        ],
+        temperature=0.1
+    )
 
-        return response.choices[0].message.content.strip()  # Access response correctly
-    except Exception as e:
-        st.error(f"Error during OpenAI Fraud Analysis: {e}")
-        return "Error occurred during fraud analysis."
+    return response.choices[0].message.content.strip()
+
 
 # ✅ Function for AML risk analysis
 def analyze_aml_risk(kyc_text):
@@ -122,20 +114,17 @@ def analyze_aml_risk(kyc_text):
     - Provide a short explanation of the AML risk.
     """
 
-    try:
-        response = openai.chat.completions.create(  # Use openai.chat.completions
-            model="gpt-4o",
-            messages=[
-                {"role": "system", "content": "You are an AI specialized in AML risk assessment for financial services."},
-                {"role": "user", "content": aml_prompt}
-            ],
-            temperature=0.1
-        )
+    response = client_openai.chat.completions.create(
+        model="gpt-4o",
+        messages=[
+            {"role": "system", "content": "You are an AI specialized in AML risk assessment for financial services."},
+            {"role": "user", "content": aml_prompt}
+        ],
+        temperature=0.1
+    )
 
-        return response.choices[0].message.content.strip()  # Access response correctly
-    except Exception as e:
-        st.error(f"Error during OpenAI AML Analysis: {e}")
-        return "Error occurred during AML analysis."
+    return response.choices[0].message.content.strip()
+
 
 # ✅ Streamlit UI for file upload
 st.title("🔍 AI-Based KYC Extraction (Google Document AI) + Fraud & AML (GPT-4o)")
@@ -152,11 +141,9 @@ if uploaded_file:
 
     st.info("⏳ Extracting text using Google Document AI...")
 
-    # Construct processor name here
-    processor_name = f"projects/{st.secrets['gcp']['project_id']}/locations/us/processors/{st.secrets['gcp']['processor_id']}"
-
     # ✅ Extract text using Google Document AI
-    extracted_text = extract_text_google(temp_path, mime_type, processor_name)
+    extracted_text = extract_text_google(temp_path, mime_type)
+    st.success("✅ Text extraction successful!")
 
     # ✅ Extract KYC details
     st.info("⏳ Extracting structured KYC details using GPT-4o...")
@@ -189,4 +176,3 @@ if uploaded_file:
 
     # Cleanup
     os.remove(temp_path)
-
