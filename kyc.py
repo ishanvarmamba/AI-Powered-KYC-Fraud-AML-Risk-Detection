@@ -19,8 +19,10 @@ st.set_page_config(page_title="KYC AI Fraud & AML Risk Detection", layout="wide"
 gcp_credentials = json.loads(st.secrets["gcp"]["credentials"])
 credentials = service_account.Credentials.from_service_account_info(gcp_credentials)
 
-# ✅ Initialize OpenAI API
-openai.api_key = st.secrets["OPENAI_API_KEY"]
+import openai
+
+# ✅ Correct way to fetch API Key from Streamlit Secrets
+openai.api_key = st.secrets["OPENAI"]["api_key"]
 
 # ✅ Initialize Google Cloud Document AI Client
 document_client = documentai.DocumentUnderstandingServiceClient(credentials=credentials)
