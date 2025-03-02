@@ -1,18 +1,20 @@
-import streamlit as st
 import os
 import json
 import base64
-import pandas as pd
-import re
+import streamlit as st
 from google.oauth2 import service_account
 from google.cloud import documentai
 from PIL import Image
-import pdf2image
-import pytesseract
+# import pdf2image  # Remove unused import
+# import numpy as np  # Remove unused import
+# import pytesseract  # Remove unused import
 import openai
-import fitz  # PyMuPDF
+import pandas as pd
+import re
+# import fitz  # PyMuPDF - Remove unused import
 
 # ------------------------ 1️⃣ Load API Keys ------------------------
+# Streamlit Page Configuration
 st.set_page_config(page_title="KYC AI Fraud & AML Risk Detection", layout="wide")
 
 # Initialize Google Cloud Document AI Client
@@ -29,19 +31,14 @@ except KeyError as e:
 openai.api_key = st.secrets["openai"]["api_key"]
 
 # ------------------------ 2️⃣ Helper Functions ------------------------
-
-def extract_text_from_pdf(pdf_path):
-    """Extract text from PDF using PyMuPDF."""
-    try:
-        doc = fitz.open(pdf_path)
-        extracted_text = ""
-        for page_num in range(doc.page_count):
-            page = doc.load_page(page_num)
-            extracted_text += page.get_text() + "\n"
-        return extracted_text.strip()
-    except Exception as e:
-        st.error(f"Error extracting text from PDF using PyMuPDF: {e}")
-        return None
+# def extract_text_from_pdf(pdf_path):   # Remove function
+#     """Converts PDF pages to images and extracts text using OCR."""
+#     images = pdf2image.convert_from_path(pdf_path)
+#     extracted_text = ""
+#     for img in images:
+#         text = pytesseract.image_to_string(img)
+#         extracted_text += text + "\n"
+#     return extracted_text.strip()
 
 def encode_image(image_path):
     """Encodes an image as base64 for Google Cloud Document AI."""
@@ -60,9 +57,9 @@ def analyze_kyc_document(file_path, file_type):
             with open(file_path, "rb") as file:
                 document = documentai.Document.from_file(file)
                 request = documentai.ProcessRequest(
-                name=f"projects/{gcp_credentials['project_id']}/locations/us/processors/{processor_id}",
-                document=document
-            )
+                    name=f"projects/{gcp_credentials['project_id']}/locations/us/processors/{processor_id}",
+                    document=document
+                )
                 response = document_client.process_document(request=request)
                 extracted_text = response.document.text
         else:
@@ -202,3 +199,4 @@ if uploaded_file:
 
     finally:
         os.remove(file_path)
+
