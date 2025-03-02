@@ -1,16 +1,14 @@
-import os
-import json
-import base64
 import streamlit as st
-from google.oauth2 import service_account
-from google.cloud import documentai
-from PIL import Image
-import pdf2image
-import numpy as np
-import pytesseract
 import openai
+import os
+import base64
+from PIL import Image
+import tempfile
 import pandas as pd
-import re
+import re  # ✅ For extracting fraud/AML percentages
+from google.cloud import documentai
+from google.oauth2 import service_account
+import json  # Import the json module
 
 # ------------------------ 1️⃣ Load API Keys ------------------------
 # Streamlit Page Configuration
@@ -18,154 +16,167 @@ st.set_page_config(page_title="KYC AI Fraud & AML Risk Detection", layout="wide"
 
 # Initialize Google Cloud Document AI Client
 try:
-    gcp_credentials = json.loads(st.secrets["gcp"]["credentials"])
+    # Attempt to load credentials from Streamlit secrets
+    gcp_credentials = st.secrets["gcp"]["credentials"]
+
+    # Check if credentials are a string (if so, parse as JSON)
+    if isinstance(gcp_credentials, str):
+        gcp_credentials = json.loads(gcp_credentials)
+
     credentials = service_account.Credentials.from_service_account_info(gcp_credentials)
     document_client = documentai.DocumentProcessorServiceClient(credentials=credentials)
-    processor_id = st.secrets["gcp"]["processor_id"]
+    processor_id = st.secrets["gcp"]["processor_id"]  # Load processor ID from secrets
 except KeyError as e:
     st.error(f"Missing secret key: {e}. Check your secrets.toml file.")
     st.stop()
 
-# Initialize OpenAI API
+# ✅ Initialize OpenAI API
 openai.api_key = st.secrets["openai"]["api_key"]
 
-# ------------------------ 2️⃣ Helper Functions ------------------------
-def extract_text_from_pdf(pdf_path):
-    """Converts PDF pages to images and extracts text using OCR."""
-    images = pdf2image.convert_from_path(pdf_path)
-    extracted_text = ""
-    for img in images:
-        text = pytesseract.image_to_string(img)
-        extracted_text += text + "\n"
-    return extracted_text.strip()
-
-def encode_image(image_path):
-    """Encodes an image as base64 for Google Cloud Document AI."""
-    with open(image_path, "rb") as img_file:
-        return base64.b64encode(img_file.read()).decode("utf-8")
-
-def analyze_kyc_document(file_path, file_type):
-    """Extracts KYC details using Google Cloud Document AI."""
+# ✅ Function to extract text using Google Document AI
+def extract_text_google(file_path, mime_type, processor_name):
+    """Extracts text from a document using Google Cloud Document AI."""
     try:
-        if file_type == "pdf":
-            extracted_text = extract_text_from_pdf(file_path)
-        else:
-            base64_img = encode_image(file_path)
-            document = {
-                "content": base64_img,
-                "mime_type": "image/png" if file_type == "png" else "image/jpeg",
-            }
-            request = documentai.ProcessRequest(
-                name=f"projects/{gcp_credentials['project_id']}/locations/us/processors/{processor_id}",
-                raw_document=document,
-            )
-            response = document_client.process_document(request=request)
-            extracted_text = response.document.text
+        with open(file_path, "rb") as image_file:
+            image_content = image_file.read()
 
-        return extracted_text.strip()
+        raw_document = documentai.RawDocument(content=image_content, mime_type=mime_type)
+        request = documentai.ProcessRequest(
+            name=processor_name,  # Use the processor_name parameter
+            raw_document=raw_document
+        )
+
+        response = document_client.process_document(request=request)
+        return response.document.text
     except Exception as e:
-        st.error(f"Error analyzing KYC document: {e}")
+        st.error(f"Error extracting text with Google Document AI: {e}")
         return ""
 
+# ✅ Function to extract key KYC details automatically
+def extract_kyc_details(extracted_text):
+    try:
+        response = openai.chat.completions.create(  # Use openai.chat.completions
+            model="gpt-4o",
+            messages=[
+                {"role": "system",
+                 "content": "You are an AI specialized in KYC document verification. Extract structured details such as Name, Date of Birth, ID Type, ID Number, Address, Nationality, Issued Date, and Expiry Date."},
+                {"role": "user",
+                 "content": f"Extract key KYC details from the following document text:\n\n{extracted_text}"}
+            ],
+            temperature=0.1
+        )
+        return response.choices[0].message.content.strip()  # Access response correctly
+    except Exception as e:
+        st.error(f"Error during OpenAI KYC extraction: {e}")
+        return "Error occurred during KYC extraction."
+
+# ✅ Function to extract percentage from GPT response
+def extract_percentage(text):
+    match = re.search(r'(\d{1,3})%', text)
+    return match.group(1) if match else "Unknown"
+
+# ✅ Function for fraud risk analysis
 def analyze_fraud_risk(kyc_text):
-    """Analyzes fraud risk using OpenAI GPT-4o."""
+    fraud_prompt = f"""
+    Analyze the following KYC details for potential fraud risk:
+
+    {kyc_text}
+
+    Identify:
+    - Inconsistencies in document details
+    - Signs of tampering or forgery
+    - Unusual patterns that indicate fraud
+    - Provide a fraud risk percentage (0-100%)
+    - Provide a short explanation of the risk assessment.
+    """
+
     try:
-        prompt = f"""
-        Analyze the following KYC document for fraud risk:
-
-        {kyc_text}
-
-        - Identify inconsistencies in document details.
-        - Signs of tampering, duplication, or forgery.
-        - Unusual patterns indicating fraud.
-        - Provide a fraud risk percentage (0-100%).
-        - Provide a short explanation.
-
-        Return output in this format:
-        **Fraud Risk:** X%
-        **Analysis:** Explanation here.
-        """
-
         response = openai.chat.completions.create(  # Use openai.chat.completions
             model="gpt-4o",
-            messages=[{"role": "system", "content": "You are a fraud risk analyst."}, {"role": "user", "content": prompt}],
-            temperature=0.1,
+            messages=[
+                {"role": "system",
+                 "content": "You are an AI fraud detection expert analyzing KYC documents for financial services."},
+                {"role": "user", "content": fraud_prompt}
+            ],
+            temperature=0.1
         )
+
         return response.choices[0].message.content.strip()  # Access response correctly
     except Exception as e:
-        st.error(f"Error during fraud analysis: {e}")
-        return ""
+        st.error(f"Error during OpenAI Fraud Analysis: {e}")
+        return "Error occurred during fraud analysis."
 
+# ✅ Function for AML risk analysis
 def analyze_aml_risk(kyc_text):
-    """Analyzes AML risk using OpenAI GPT-4o."""
+    aml_prompt = f"""
+    Analyze the following KYC details for AML (Anti-Money Laundering) risks:
+
+    {kyc_text}
+
+    Identify:
+    - High-risk nationalities (sanctions, high-corruption index)
+    - Politically Exposed Persons (PEPs)
+    - Duplicate or fake identities
+    - Transactions linked to financial crime
+    - Provide an AML risk percentage (0-100%)
+    - Provide a short explanation of the AML risk.
+    """
+
     try:
-        prompt = f"""
-        Analyze the following KYC document for Anti-Money Laundering (AML) risk:
-
-        {kyc_text}
-
-        - Check for high-risk nationalities (sanctions, high-corruption index).
-        - Identify Politically Exposed Persons (PEPs).
-        - Detect duplicate or fake identities.
-        - Transactions linked to financial crime.
-        - Provide an AML risk percentage (0-100%).
-        - Provide a short explanation.
-
-        Return output in this format:
-        **AML Risk:** X%
-        **Analysis:** Explanation here.
-        """
-
         response = openai.chat.completions.create(  # Use openai.chat.completions
             model="gpt-4o",
-            messages=[{"role": "system", "content": "You are an AML risk analyst."}, {"role": "user", "content": prompt}],
-            temperature=0.1,
+            messages=[
+                {"role": "system", "content": "You are an AI specialized in AML risk assessment for financial services."},
+                {"role": "user", "content": aml_prompt}
+            ],
+            temperature=0.1
         )
+
         return response.choices[0].message.content.strip()  # Access response correctly
     except Exception as e:
-        st.error(f"Error during AML analysis: {e}")
-        return ""
+        st.error(f"Error during OpenAI AML Analysis: {e}")
+        return "Error occurred during AML analysis."
 
-# ------------------------ 3️⃣ Streamlit UI ------------------------
-st.title("🔍 KYC AI: Fraud & AML Risk Detection")
-st.subheader("📑 Upload a KYC document (Passport, ID, License, etc.)")
+# ✅ Streamlit UI for file upload
+st.title("🔍 AI-Based KYC Extraction (Google Document AI) + Fraud & AML (GPT-4o)")
 
-uploaded_file = st.file_uploader("Upload an image or PDF", type=["jpg", "png", "pdf"])
+uploaded_file = st.file_uploader("📂 Upload a KYC document (Passport, ID, License, etc.)", type=["jpg", "png", "pdf"])
 
 if uploaded_file:
     file_extension = uploaded_file.name.split(".")[-1].lower()
+    mime_type = "application/pdf" if file_extension == "pdf" else "image/jpeg"
 
-    with open(f"temp.{file_extension}", "wb") as f:
-        f.write(uploaded_file.getvalue())
-        file_path = f.name
+    with tempfile.NamedTemporaryFile(delete=False, suffix=f".{file_extension}") as temp_file:
+        temp_file.write(uploaded_file.getvalue())
+        temp_path = temp_file.name
 
-    st.info("🔍 Extracting KYC details...")
-    kyc_text = analyze_kyc_document(file_path, file_extension)
-    st.success("✅ KYC extraction successful!")
+    st.info("⏳ Extracting text using Google Document AI...")
 
-    # Display Extracted KYC Details
-    kyc_data = [line.split(": ") for line in kyc_text.split("\n") if ": " in line]
-    kyc_df = pd.DataFrame(kyc_data, columns=["Field", "Value"])
-    st.subheader("📜 Extracted KYC Details")
-    st.table(kyc_df)
+    # Construct processor name here
+    processor_name = f"projects/{st.secrets['gcp']['project_id']}/locations/us/processors/{st.secrets['gcp']['processor_id']}"
 
-    # Fraud Risk Analysis
-    st.info("🔍 Running fraud risk analysis...")
-    fraud_analysis = analyze_fraud_risk(kyc_text)
+    # ✅ Extract text using Google Document AI
+    extracted_text = extract_text_google(temp_path, mime_type, processor_name)
 
-    # AML Risk Analysis
-    st.info("🔍 Running AML risk analysis...")
-    aml_analysis = analyze_aml_risk(kyc_text)
+    # ✅ Extract KYC details
+    st.info("⏳ Extracting structured KYC details using GPT-4o...")
+    kyc_details = extract_kyc_details(extracted_text)
+    st.success("✅ KYC extraction completed!")
 
-    # Extract Percentages
-    def extract_percentage(text):
-        match = re.search(r'(\d{1,3})%', text)
-        return match.group(1) if match else "Unknown"
+    # ✅ Display extracted KYC details
+    st.subheader("📄 Extracted KYC Details")
+    st.text(kyc_details)
 
+    # ✅ Run fraud & AML risk analysis
+    st.info("⏳ Running fraud risk analysis...")
+    fraud_analysis = analyze_fraud_risk(kyc_details)
     fraud_risk = extract_percentage(fraud_analysis)
+
+    st.info("⏳ Running AML risk analysis...")
+    aml_analysis = analyze_aml_risk(kyc_details)
     aml_risk = extract_percentage(aml_analysis)
 
-    # Display Fraud & AML Risk
+    # ✅ Display Fraud & AML risk with percentages at the top
     st.subheader("⚠️ Risk Assessment")
     st.write(f"**Fraud Risk Level:** {fraud_risk}%")
     st.write(f"**AML Risk Level:** {aml_risk}%")
@@ -176,4 +187,6 @@ if uploaded_file:
     st.subheader("📌 AML Analysis")
     st.text(aml_analysis)
 
-    os.remove(file_path)
+    # Cleanup
+    os.remove(temp_path)
+
