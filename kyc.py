@@ -15,7 +15,8 @@ st.set_page_config(page_title="KYC AI Fraud & AML Risk Detection", layout="wide"
 
 # Initialize Google Cloud Document AI Client
 try:
-    gcp_credentials = json.loads(st.secrets["gcp"]["credentials"])  # Load credentials from secrets
+    # Load credentials from Streamlit secrets
+    gcp_credentials = json.loads(st.secrets["gcp"]["credentials"])
     credentials = service_account.Credentials.from_service_account_info(gcp_credentials)
     document_client = documentai.DocumentProcessorServiceClient(credentials=credentials)
     processor_id = st.secrets["gcp"]["processor_id"]  # Load processor ID from secrets
@@ -27,6 +28,15 @@ except KeyError as e:
 openai.api_key = st.secrets["openai"]["api_key"]
 
 # ------------------------ 2️⃣ Helper Functions ------------------------
+# def extract_text_from_pdf(pdf_path): # Remove this function
+#     """Converts PDF pages to images and extracts text using OCR."""
+#     images = pdf2image.convert_from_path(pdf_path)
+#     extracted_text = ""
+#     for img in images:
+#         text = pytesseract.image_to_string(img)
+#         extracted_text += text + "\n"
+#     return extracted_text.strip()
+
 def encode_image(image_path):
     """Encodes an image as base64 for Google Cloud Document AI."""
     try:
@@ -39,21 +49,35 @@ def encode_image(image_path):
 def analyze_kyc_document(file_path, file_type):
     """Extracts KYC details using Google Cloud Document AI."""
     try:
+        # Read the file content
         with open(file_path, "rb") as file:
             file_content = file.read()
-            mime_type = "application/pdf" if file_type == "pdf" else ("image/png" if file_type == "png" else "image/jpeg")
 
-            raw_document = documentai.RawDocument(content=file_content, mime_type=mime_type)
-            request = documentai.ProcessRequest(
-                name=f"projects/{gcp_credentials['project_id']}/locations/us/processors/{processor_id}",
-                raw_document=raw_document,
-            )
-            response = document_client.process_document(request=request)
-            extracted_text = response.document.text
+        # Determine the correct MIME type
+        mime_type = "application/pdf" if file_type == "pdf" else (
+            "image/png" if file_type == "png" else "image/jpeg")
+
+        # Create a raw document object
+        raw_document = documentai.RawDocument(content=file_content, mime_type=mime_type)
+
+        # Build the request
+        request = documentai.ProcessRequest(
+            name=f"projects/{gcp_credentials['project_id']}/locations/us/processors/{processor_id}",  # Replace with your processor ID
+            raw_document=raw_document,
+        )
+
+        # Call the Document AI service
+        response = document_client.process_document(request=request)
+
+        # Extract the text from the response
+        extracted_text = response.document.text
+
         return extracted_text.strip()
+
     except Exception as e:
         st.error(f"Error analyzing KYC document with Document AI: {e}")
-        return ""
+        return ""  # Return an empty string in case of an error
+
 
 def analyze_fraud_risk(kyc_text):
     """Analyzes fraud risk using OpenAI GPT-4o."""
@@ -128,9 +152,10 @@ uploaded_file = st.file_uploader("Upload an image or PDF", type=["jpg", "png", "
 if uploaded_file:
     file_extension = uploaded_file.name.split(".")[-1].lower()
 
-    with open(f"temp.{file_extension}", "wb") as f:
+    file_path = f"temp.{file_extension}"  # Define file_path here
+
+    with open(file_path, "wb") as f:
         f.write(uploaded_file.getvalue())
-        file_path = f.name
 
     try:
         st.info("🔍 Extracting KYC details...")
@@ -170,4 +195,4 @@ if uploaded_file:
         st.text(aml_analysis)
 
     finally:
-        os.remove(file_path)
+        os.remove(file_path) # Ensure the temporary file is always deleted
