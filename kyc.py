@@ -6,7 +6,7 @@ import fitz  # ✅ PyMuPDF for PDF text extraction
 from PIL import Image
 import tempfile
 import pandas as pd
-import re  # ✅ For extracting fraud/AML percentages
+import re
 from google.cloud import documentai
 from google.oauth2 import service_account
 
