@@ -1,9 +1,13 @@
-import streamlit as st
-import openai
 import os
+import json
 import base64
-from google.cloud import documentai
+import streamlit as st
 from google.oauth2 import service_account
+from google.cloud import documentai
+from PIL import Image
+import openai
+import pandas as pd
+import re
 
 # ------------------------ 1️⃣ Load API Keys ------------------------
 # Streamlit Page Configuration
@@ -11,13 +15,7 @@ st.set_page_config(page_title="KYC AI Fraud & AML Risk Detection", layout="wide"
 
 # Initialize Google Cloud Document AI Client
 try:
-    # Load service account credentials from Streamlit secrets (it should be in JSON format)
-    gcp_credentials = st.secrets["gcp"]["credentials"]  # Should be a dictionary, not a string
-
-    # Convert JSON string to a dictionary if it's stored as a string
-    if isinstance(gcp_credentials, str):
-        gcp_credentials = json.loads(gcp_credentials)
-
+    gcp_credentials = json.loads(st.secrets["gcp"]["credentials"])  # Load credentials from secrets
     credentials = service_account.Credentials.from_service_account_info(gcp_credentials)
     document_client = documentai.DocumentProcessorServiceClient(credentials=credentials)
     processor_id = st.secrets["gcp"]["processor_id"]  # Load processor ID from secrets
