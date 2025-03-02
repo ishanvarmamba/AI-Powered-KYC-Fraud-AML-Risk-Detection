@@ -1,0 +1,5 @@
+streamlit
+openai
+pandas
+fitz  # For PDFs (PyMuPDF)
+pillow  # Image processing
