@@ -1,5 +1,5 @@
 streamlit
 openai
 pandas
-fitz  # For PDFs (PyMuPDF)
+pymupdf # For PDFs (PyMuPDF)
 pillow  # Image processing
