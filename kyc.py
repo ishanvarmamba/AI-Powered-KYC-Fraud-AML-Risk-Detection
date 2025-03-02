@@ -22,7 +22,7 @@ credentials = service_account.Credentials.from_service_account_info(gcp_credenti
 import openai
 
 # ✅ Correct way to fetch API Key from Streamlit Secrets
-openai.api_key = st.secrets["OPENAI"]["api_key"]
+openai.api_key = st.secrets["openai"]["api_key"]
 
 # ✅ Initialize Google Cloud Document AI Client
 document_client = documentai.DocumentUnderstandingServiceClient(credentials=credentials)
