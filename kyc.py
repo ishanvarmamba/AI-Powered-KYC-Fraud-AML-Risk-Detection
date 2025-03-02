@@ -50,7 +50,7 @@ def analyze_kyc_document(file_path, file_type):
             "mime_type": "image/png" if file_type == "png" else "image/jpeg",
         }
         request = documentai.ProcessRequest(
-            name=f"projects/{gcp_credentials['project_id']}/locations/us/processors/YOUR_PROCESSOR_ID",
+            name=f"projects/{gcp_credentials['project_id']}/locations/us/processors/d3e2d06bf184c675",
             raw_document=document,
         )
         response = document_client.process_document(request=request)

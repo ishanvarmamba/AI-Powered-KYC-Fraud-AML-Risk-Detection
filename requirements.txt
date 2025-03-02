@@ -12,3 +12,5 @@ numpy
 pandas
 matplotlib
 PyMuPDF
+google-cloud-documentai==3.2.0
+openai==1.65.2
