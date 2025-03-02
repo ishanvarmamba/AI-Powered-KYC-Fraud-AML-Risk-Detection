@@ -3,7 +3,7 @@ import json
 import base64
 import streamlit as st
 from google.oauth2 import service_account
-from google.cloud import documentai_v1beta3 as documentai
+from google.cloud import documentai
 from PIL import Image
 import pdf2image
 import numpy as np
@@ -16,12 +16,10 @@ import re
 # Streamlit Page Configuration
 st.set_page_config(page_title="KYC AI Fraud & AML Risk Detection", layout="wide")
 
-# ✅ Load Google Cloud API credentials from Streamlit Secrets
-gcp_credentials = json.loads(st.secrets["gcp"]["credentials"])
-
 # Initialize Google Cloud Document AI Client
+gcp_credentials = json.loads(st.secrets["gcp"]["credentials"])
 credentials = service_account.Credentials.from_service_account_info(gcp_credentials)
-document_client = documentai.DocumentUnderstandingServiceClient(credentials=credentials)
+document_client = documentai.DocumentProcessorServiceClient(credentials=credentials)
 
 # ✅ Initialize OpenAI API
 openai.api_key = st.secrets["openai"]["api_key"]
