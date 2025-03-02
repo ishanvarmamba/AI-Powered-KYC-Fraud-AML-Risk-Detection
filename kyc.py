@@ -5,13 +5,9 @@ import streamlit as st
 from google.oauth2 import service_account
 from google.cloud import documentai
 from PIL import Image
-# import pdf2image  # Remove unused import
-# import numpy as np  # Remove unused import
-# import pytesseract  # Remove unused import
 import openai
 import pandas as pd
 import re
-# import fitz  # PyMuPDF - Remove unused import
 
 # ------------------------ 1️⃣ Load API Keys ------------------------
 # Streamlit Page Configuration
@@ -24,22 +20,13 @@ try:
     document_client = documentai.DocumentProcessorServiceClient(credentials=credentials)
     processor_id = st.secrets["gcp"]["processor_id"]  # Load processor ID from secrets
 except KeyError as e:
-    st.error(f"Missing secret key: {e}.  Check your secrets.toml file.")
+    st.error(f"Missing secret key: {e}. Check your secrets.toml file.")
     st.stop()
 
 # ✅ Initialize OpenAI API
 openai.api_key = st.secrets["openai"]["api_key"]
 
 # ------------------------ 2️⃣ Helper Functions ------------------------
-# def extract_text_from_pdf(pdf_path):   # Remove function
-#     """Converts PDF pages to images and extracts text using OCR."""
-#     images = pdf2image.convert_from_path(pdf_path)
-#     extracted_text = ""
-#     for img in images:
-#         text = pytesseract.image_to_string(img)
-#         extracted_text += text + "\n"
-#     return extracted_text.strip()
-
 def encode_image(image_path):
     """Encodes an image as base64 for Google Cloud Document AI."""
     try:
@@ -52,39 +39,24 @@ def encode_image(image_path):
 def analyze_kyc_document(file_path, file_type):
     """Extracts KYC details using Google Cloud Document AI."""
     try:
-        if file_type == "pdf":
-            # Use Google Cloud Document AI directly for PDF extraction
-            with open(file_path, "rb") as file:
-                document = documentai.Document.from_file(file)
-                request = documentai.ProcessRequest(
-                    name=f"projects/{gcp_credentials['project_id']}/locations/us/processors/{processor_id}",
-                    document=document
-                )
-                response = document_client.process_document(request=request)
-                extracted_text = response.document.text
-        else:
-            base64_img = encode_image(file_path)
-            if base64_img is None:
-                return ""  # Or handle the error as appropriate
+        with open(file_path, "rb") as file:
+            file_content = file.read()
+            mime_type = "application/pdf" if file_type == "pdf" else ("image/png" if file_type == "png" else "image/jpeg")
 
-            document = {
-                "content": base64_img,
-                "mime_type": "image/png" if file_type == "png" else "image/jpeg",
-            }
+            raw_document = documentai.RawDocument(content=file_content, mime_type=mime_type)
             request = documentai.ProcessRequest(
-                name=f"projects/{gcp_credentials['project_id']}/locations/us/processors/{processor_id}",  # Use stored processor_id
-                raw_document=document,
+                name=f"projects/{gcp_credentials['project_id']}/locations/us/processors/{processor_id}",
+                raw_document=raw_document,
             )
             response = document_client.process_document(request=request)
             extracted_text = response.document.text
-
         return extracted_text.strip()
     except Exception as e:
         st.error(f"Error analyzing KYC document with Document AI: {e}")
         return ""
 
 def analyze_fraud_risk(kyc_text):
-    """Analyzes fraud risk using OpenAI GPT-4o."""
+    """Analyzes fraud risk using OpenAI GPT-4."""
     try:
         prompt = f"""
         Analyze the following KYC document for fraud risk:
@@ -103,7 +75,7 @@ def analyze_fraud_risk(kyc_text):
         """
 
         response = openai.ChatCompletion.create(
-            model="gpt-4o",
+            model="gpt-4",  # Update model to 'gpt-4' if using the latest version
             messages=[{"role": "system", "content": "You are a fraud risk analyst."}, {"role": "user", "content": prompt}],
             temperature=0.1,
         )
@@ -113,7 +85,7 @@ def analyze_fraud_risk(kyc_text):
         return "Fraud Risk: Unknown%\nAnalysis: An error occurred during analysis."
 
 def analyze_aml_risk(kyc_text):
-    """Analyzes AML risk using OpenAI GPT-4o."""
+    """Analyzes AML risk using OpenAI GPT-4."""
     try:
         prompt = f"""
         Analyze the following KYC document for Anti-Money Laundering (AML) risk:
@@ -133,7 +105,7 @@ def analyze_aml_risk(kyc_text):
         """
 
         response = openai.ChatCompletion.create(
-            model="gpt-4o",
+            model="gpt-4",  # Update model to 'gpt-4' if using the latest version
             messages=[{"role": "system", "content": "You are an AML risk analyst."}, {"role": "user", "content": prompt}],
             temperature=0.1,
         )
@@ -199,4 +171,3 @@ if uploaded_file:
 
     finally:
         os.remove(file_path)
-
